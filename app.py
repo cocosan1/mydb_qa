@@ -64,16 +64,32 @@ def make_doc(notion_token):
     for page in j_response2:
         page_id = page["id"]
         page_ids.append(page_id)
-    
-    NotionPageReader = download_loader('NotionPageReader')
 
-    documents = NotionPageReader(integration_token=notion_token).load_data(page_ids=page_ids)
+    from langchain_community.document_loaders import NotionDBLoader
+
+    loader = NotionDBLoader(
+    integration_token=integration_token,
+    database_id=page_ids,
+    request_timeout_sec=30,  # optional, defaults to 10
+    )
+
+    documents = loader.load()
+
+
+    
+    # NotionPageReader = download_loader('NotionPageReader')
+
+    # documents = NotionPageReader(integration_token=notion_token).load_data(page_ids=page_ids)
 
     return documents
 
 raw_documents = make_doc(integration_token)
 
 st.write(raw_documents)
+
+for document in raw_documents:
+    if not document.page_content:
+        document.page_content = document.text
 
 ### CharacterTextSplitter
 text_splitter = CharacterTextSplitter(
