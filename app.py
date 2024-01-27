@@ -22,7 +22,7 @@ from llama_index import download_loader
 
 # pip install streamlit llama-index langchain langchain_community rank_bm25
 
-st.markdown('### 社内Q&A ')
+st.markdown('### myDB Q&A ')
 
 os.environ['OPENAI_API_KEY'] = st.secrets['OPENAI_API_KEY']
 
