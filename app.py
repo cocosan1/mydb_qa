@@ -18,7 +18,6 @@ from langchain_core.prompts import PromptTemplate
 from langchain.document_transformers import LongContextReorder
 from langchain.chains import LLMChain
 
-
 from llama_index import download_loader
 
 # pip install streamlit llama-index langchain langchain_community rank_bm25
@@ -83,7 +82,8 @@ def make_doc(notion_token):
         page_id = page["id"]
         page_ids.append(page_id)
 
-    NotionPageReader = download_loader('NotionPageReader')
+    NotionPageReader = download_loader('NotionPageReader', custom_path="local_dir")
+    # custom_path="local_dir" これがないとstreamlit cloudで動かなくなる
 
     documents = NotionPageReader(integration_token=notion_token).load_data(page_ids=page_ids)
 
