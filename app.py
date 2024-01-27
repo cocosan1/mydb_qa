@@ -5,6 +5,7 @@ import requests
 import os
 import shutil
 import logging
+import pickle
 
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -64,8 +65,8 @@ def make_doc(notion_token):
     response = requests.post(url, json=json_data, headers=headers)
   
     j_response = response.json()
-    with st.expander('j_response',expanded=False):
-        st.write(j_response)
+    # with st.expander('j_response',expanded=False):
+    #     st.write(j_response)
 
     j_response1 = j_response['object']
     j_response2 = j_response['results']
@@ -88,48 +89,57 @@ def make_doc(notion_token):
 
     return documents, urls
 
-raw_documents, urls = make_doc(integration_token)
+##########################　notionから取得したdocumentsの分割
+def split_doc():
+    raw_documents, urls = make_doc(integration_token)
 
-### llamaindex型のオブジェクトからlangchain型のオブジェクトに変換
-documents = []
-for doc, url in zip(raw_documents, urls):
-    # 要素の抽出
-    page_content = doc.text
-    metadata = doc.metadata
-    # langchain型のオブジェクトに変換
-    document = Document(page_content=page_content, metadata=metadata)
+    ### llamaindex型のオブジェクトからlangchain型のオブジェクトに変換
+    documents = []
+    for doc, url in zip(raw_documents, urls):
+        # 要素の抽出
+        page_content = doc.text
+        metadata = doc.metadata
+        # langchain型のオブジェクトに変換
+        document = Document(page_content=page_content, metadata=metadata)
 
-    # 追加するmetadataを定義
-    new_metadata = {"url": url}
+        # 追加するmetadataを定義
+        new_metadata = {"url": url}
 
-    # documentのmetadataに追加する
-    document.metadata.update(new_metadata)
-    # listに追加
-    documents.append(document)
+        # documentのmetadataに追加する
+        document.metadata.update(new_metadata)
+        # listに追加
+        documents.append(document)
 
-### CharacterTextSplitter
-text_splitter = CharacterTextSplitter(
-    separator = "\n",  # セパレータ
-    chunk_size = 200,  # チャンクの文字数
-    chunk_overlap = 0,  # 重なりの最大文字数
-    length_function = len, # チャンクの長さがどのように計算されるか len 文字数 
-    is_separator_regex = False, 
-    # セパレータが正規表現かどうかを指定 True セパレータは正規表現 False 文字列
-)
+    ### CharacterTextSplitter
+    text_splitter = CharacterTextSplitter(
+        separator = "\n",  # セパレータ
+        chunk_size = 200,  # チャンクの文字数
+        chunk_overlap = 0,  # 重なりの最大文字数
+        length_function = len, # チャンクの長さがどのように計算されるか len 文字数 
+        is_separator_regex = False, 
+        # セパレータが正規表現かどうかを指定 True セパレータは正規表現 False 文字列
+    )
 
-## データの分割
-# documentオブジェクト
-splitted_documents = text_splitter.split_documents(documents)
+    ## データの分割
+    # documentオブジェクト
+    splitted_documents = text_splitter.split_documents(documents)
 
-with st.expander('splitted_documents', expanded=False):
-            st.write(splitted_documents)
+    # with st.expander('splitted_documents', expanded=False):
+    #             st.write(splitted_documents)
 
-# テキストデータ　M25Retrieverに渡す前にオブジェクトから文字列に変換する必要あり。
-splitted_documents_txt = [doc.page_content for doc in text_splitter.split_documents(documents)]
+    # テキストデータ　M25Retrieverに渡す前にオブジェクトから文字列に変換する必要あり。
+    splitted_documents_txt = [doc.page_content for doc in text_splitter.split_documents(documents)]
+
+    return splitted_documents, splitted_documents_txt
+
 
 def run_retriever():
     # vectorstoreの読み込み
     vectorstore = FAISS.load_local("./fiass_index", embedding_model)
+
+    # splitted_documents_txtの読み込み
+    with open("splitted_documents_txt.pkl", "rb") as f:
+        splitted_documents_txt = pickle.load(f)
 
     ## 初期化 retriever
     # bm25 retriever
@@ -219,7 +229,7 @@ def run_retriever():
 
         with st.expander('設定: chunk数の設定', expanded=False):
             # chunk数を表示
-            st.write(f'■ ensemble_docsのchunk数: {len(ensemble_docs)} ■ 全chunk数: {len(splitted_documents)}')
+            st.write(f'■ ensemble_docsのchunk数: {len(ensemble_docs)} ■ 全chunk数: {len(splitted_documents_txt)}')
 
             # ensemble_docsのchunkの数を決定
             len_chunk2 = st.slider('■ ensemble_docsのchunkの数の絞込み', 
@@ -258,21 +268,11 @@ def run_retriever():
         message = st.chat_message("assistant")
         message.write(response['text'])
         
-        # dataの表示
-        with st.expander('raw_documents', expanded=False):
-            st.write(raw_documents)
-        
-        with st.expander('documents: langchain型に変換', expanded=False):
-            st.write(documents)
-        
-        with st.expander('splitted_documents', expanded=False):
-            st.write(splitted_documents)
-        
         with st.expander('ensemble_docs', expanded=False):
              st.write(ensemble_docs)
         
-        with st.expander('reordered_docs', expanded=False):
-            st.write(reordered_docs)
+        # with st.expander('reordered_docs', expanded=False):
+        #     st.write(reordered_docs)
         
         with st.expander('response.context ■ sourceの確認', expanded=False):
             st.write(response['context'])
@@ -280,6 +280,13 @@ def run_retriever():
 
 #1次情報cbのindex化
 def save_fiass():
+    # notionから取得したdocumentsの分割
+    splitted_documents, splitted_documents_txt = split_doc()
+
+    # ファイルの保存
+    with open("splitted_documents_txt.pkl", "wb") as f:
+        pickle.dump(splitted_documents_txt, f)
+
     ##############notionからテキストデータの取得
 
     dir_path = './fiass_index/'
@@ -302,13 +309,30 @@ def save_fiass():
         vectorstore.save_local("./fiass_index")
         st.write('vectorstoreの保存完了')
 
+def check_data():
+    # notionから取得したdocument
+    raw_documents, urls = make_doc(integration_token)
+
+    # notionから取得したdocumentsの分割
+    splitted_documents, splitted_documents_txt = split_doc()
+
+    # dataの表示
+    with st.expander('raw_documents', expanded=False):
+        st.write(raw_documents)
+    
+    # with st.expander('documents: langchain型に変換', expanded=False):
+    #     st.write(documents)
+    
+    with st.expander('splitted_documents', expanded=False):
+        st.write(splitted_documents)
 
 
 def main():
     # function名と対応する関数のマッピング
     funcs = {
         'retrieverの実行': run_retriever,
-        'fiass_vectorstoreの作成': save_fiass
+        'fiass_vectorstoreの作成': save_fiass,
+        'データの確認': check_data
     }
 
     selected_func_name = st.sidebar.selectbox(label='項目の選択',
